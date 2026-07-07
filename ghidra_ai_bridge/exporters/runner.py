@@ -417,6 +417,7 @@ def create_known_functions(flat_api, program, fm, listing, address_map_path: str
     addr_factory = program.getAddressFactory()
 
     created = 0
+    renamed = 0
     skipped = 0
     errors = 0
 
@@ -438,15 +439,26 @@ def create_known_functions(flat_api, program, fm, listing, address_map_path: str
                 errors += 1
                 continue
 
+            full_name = info.get("full_name", f"FUN_{addr_hex}")
+            # Ghidra treats "::" as a namespace delimiter; use a flat symbol name.
+            ghidra_name = full_name.replace("::", "__")
+
             existing = fm.getFunctionAt(addr)
             if existing:
-                skipped += 1
+                # Relabel already-defined functions from the address map too
+                # (the original only created missing ones).
+                if existing.getName() != ghidra_name:
+                    try:
+                        existing.setName(ghidra_name, SourceType.USER_DEFINED)
+                        renamed += 1
+                    except Exception:
+                        errors += 1
+                else:
+                    skipped += 1
                 continue
 
-            full_name = info.get("full_name", f"FUN_{addr_hex}")
-
             flat_api.disassemble(addr)
-            func = flat_api.createFunction(addr, full_name)
+            func = flat_api.createFunction(addr, ghidra_name)
             if func:
                 created += 1
             else:
@@ -461,10 +473,11 @@ def create_known_functions(flat_api, program, fm, listing, address_map_path: str
 
     print(f"\n[CreateKnownFunctions] Complete!")
     print(f"  Created:  {created}")
-    print(f"  Skipped:  {skipped} (already exist)")
+    print(f"  Renamed:  {renamed} (existing, relabeled from address map)")
+    print(f"  Skipped:  {skipped} (already correctly named)")
     print(f"  Errors:   {errors}")
 
-    return created
+    return created + renamed
 
 
 # ---------------------------------------------------------------------------
